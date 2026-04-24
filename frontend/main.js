@@ -51,7 +51,7 @@ document.querySelector('#app').innerHTML = `
 
 // Setup Socket.IO dynamically based on the current hostname or environment variable
 // VITE_BACKEND_URL is used when hosting on Vercel pointing to a separate backend
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://umigle-production.up.railway.app';
 const socket = io(BACKEND_URL);
 
 // UI Elements
