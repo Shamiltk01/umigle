@@ -28,6 +28,10 @@ document.querySelector('#app').innerHTML = `
         <div class="video-container hidden" id="video-container">
             <div class="video-wrapper">
                 <video id="stranger-video" autoplay playsinline></video>
+                <div class="video-loading hidden" id="stranger-loading">
+                    <div class="video-spinner"></div>
+                    <span>Looking for stranger...</span>
+                </div>
                 <div class="video-label stranger-label">Stranger</div>
             </div>
             <div class="video-wrapper">
@@ -68,6 +72,7 @@ const chatMessages = document.getElementById('chat-messages');
 const videoContainer = document.getElementById('video-container');
 const localVideo = document.getElementById('local-video');
 const strangerVideo = document.getElementById('stranger-video');
+const strangerLoading = document.getElementById('stranger-loading');
 
 let isChatting = false;
 let currentMode = 'text';
@@ -117,6 +122,32 @@ function addSystemMessage(text) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+function showStrangerLoading(show) {
+    if (!strangerLoading) return;
+    strangerLoading.classList.toggle('hidden', !show);
+}
+
+function prepareForNewMatch({ clearMessages = false } = {}) {
+    isChatting = false;
+    stopVideo();
+    messageInput.value = '';
+    if (clearMessages) {
+        chatMessages.innerHTML = '';
+    }
+    if (currentMode === 'video') {
+        videoContainer.classList.remove('hidden');
+        showStrangerLoading(true);
+    }
+}
+
+function queueNextMatch(withMessage = true) {
+    prepareForNewMatch({ clearMessages: true });
+    if (withMessage) {
+        addSystemMessage('Finding new stranger...');
+    }
+    socket.emit('start_chat', { mode: currentMode });
+}
+
 // Actions
 function getMediaErrorMessage(err) {
     if (err?.name === 'NotAllowedError') {
@@ -163,6 +194,7 @@ async function startChat(mode) {
 
     if (mode === 'video') {
         videoContainer.classList.remove('hidden');
+        showStrangerLoading(true);
         try {
             localStream = await requestMediaStream();
             localVideo.srcObject = localStream;
@@ -171,9 +203,11 @@ async function startChat(mode) {
             addSystemMessage(`${getMediaErrorMessage(err)} Switching to text chat.`);
             currentMode = 'text';
             videoContainer.classList.add('hidden');
+            showStrangerLoading(false);
         }
     } else {
         videoContainer.classList.add('hidden');
+        showStrangerLoading(false);
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
             localStream = null;
@@ -193,6 +227,7 @@ function stopVideo() {
 
 function stopChat() {
     stopVideo();
+    showStrangerLoading(false);
     if (isChatting) {
         socket.emit('skip');
         isChatting = false;
@@ -201,11 +236,10 @@ function stopChat() {
 }
 
 function nextChat() {
-    stopChat(); // Disconnect current if any
-    
-    // Start searching immediately
-    chatMessages.innerHTML = '';
-    socket.emit('start_chat', { mode: currentMode });
+    if (isChatting) {
+        socket.emit('skip');
+    }
+    queueNextMatch();
 }
 
 function sendMessage() {
@@ -240,17 +274,20 @@ function createPeerConnection() {
 // Socket Events
 socket.on('waiting', () => {
     isChatting = false;
+    if (currentMode === 'video') {
+        showStrangerLoading(true);
+    }
     addSystemMessage('Looking for someone you can chat with...');
 });
 
 socket.on('chat_started', async (data) => {
     isChatting = true;
+    showStrangerLoading(false);
     addSystemMessage('You\'re now chatting with a random stranger. Say hi!');
     messageInput.focus();
 
     if (currentMode === 'video') {
         createPeerConnection();
-        // If this client is the initiator, create the offer
         if (data.initiator) {
             try {
                 const offer = await peerConnection.createOffer();
@@ -268,9 +305,7 @@ socket.on('message', (msg) => {
 });
 
 socket.on('partner_disconnected', () => {
-    isChatting = false;
-    stopVideo();
-    addSystemMessage('Stranger has disconnected.');
+    queueNextMatch(true);
 });
 
 // WebRTC Signaling Events
