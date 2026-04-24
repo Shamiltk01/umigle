@@ -118,35 +118,57 @@ function addSystemMessage(text) {
 }
 
 // Actions
+function getMediaErrorMessage(err) {
+    if (err?.name === 'NotAllowedError') {
+        return 'Camera or microphone access is blocked in browser/device settings. Allow both permissions and refresh the page.';
+    }
+    if (err?.name === 'NotFoundError') {
+        return 'No usable camera was found on this device.';
+    }
+    if (err?.name === 'NotReadableError') {
+        return 'Your camera is in use by another application (Zoom, Teams, etc.).';
+    }
+    if (err?.name === 'SecurityError') {
+        return 'Video chat requires HTTPS and a regular browser tab (not an in-app browser).';
+    }
+    return `Media error: ${err?.name || 'UnknownError'} - ${err?.message || 'Unknown error'}`;
+}
+
+async function requestMediaStream() {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        const error = new Error('Secure context required for camera access.');
+        error.name = 'SecurityError';
+        throw error;
+    }
+
+    try {
+        return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (err) {
+        if (err?.name !== 'NotAllowedError' && err?.name !== 'NotFoundError') {
+            throw err;
+        }
+
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        addSystemMessage('Microphone is blocked or unavailable. Continuing with camera only.');
+        return fallbackStream;
+    }
+}
+
 async function startChat(mode) {
     currentMode = mode;
     introBox.classList.add('hidden');
     chatInterface.classList.remove('hidden');
-    chatMessages.innerHTML = ''; // Clear previous chats
+    chatMessages.innerHTML = '';
     addSystemMessage('Connecting to server...');
 
     if (mode === 'video') {
         videoContainer.classList.remove('hidden');
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localStream = await requestMediaStream();
             localVideo.srcObject = localStream;
         } catch (err) {
             console.error('Error accessing media devices.', err);
-            
-            let errorMessage = 'Could not access camera/microphone.';
-            if (err.name === 'NotAllowedError') {
-                errorMessage = 'Camera access denied. Please click the camera icon in your browser URL bar and allow access.';
-            } else if (err.name === 'NotFoundError') {
-                errorMessage = 'No camera or microphone found on your system.';
-            } else if (err.name === 'NotReadableError') {
-                errorMessage = 'Your camera is already in use by another application (like Zoom or Skype).';
-            } else if (err === undefined || !navigator.mediaDevices) {
-                errorMessage = 'Media devices not supported. Ensure you are on HTTPS or localhost.';
-            } else {
-                errorMessage = `Media error: ${err.name} - ${err.message}`;
-            }
-
-            addSystemMessage(`${errorMessage} Switching to text chat.`);
+            addSystemMessage(`${getMediaErrorMessage(err)} Switching to text chat.`);
             currentMode = 'text';
             videoContainer.classList.add('hidden');
         }
