@@ -2,54 +2,60 @@ import './style.css';
 import { io } from "socket.io-client";
 
 document.querySelector('#app').innerHTML = `
-  <div class="app-container">
-    <header class="header">
-      <div class="logo-container">
-        <h1>Umfigle</h1>
-        <p class="tagline">Talk to strangers!</p>
-      </div>
-      <div class="online-count">
-        <span id="online-users">10,432</span>+ online now
-      </div>
-    </header>
+  <div class="app-shell">
+    <div class="app-container">
+      <header class="header">
+        <div class="brand-block">
+          <h1>Umfigle</h1>
+          <p class="tagline">Talk to strangers!</p>
+        </div>
+        <div class="header-actions">
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">🌙</button>
+          <div class="online-count">
+            <span id="online-users">10,432</span>+ online now
+          </div>
+        </div>
+      </header>
 
-    <main class="main-content">
-      <div class="intro-box" id="intro-box">
-        <h2>Meet New People</h2>
-        <p>Umfigle is a great place to meet new friends. When you use Umfigle, we pick someone else at random and let you talk one-on-one. Chats are completely anonymous.</p>
-        <div class="start-controls">
-          <p>Start chatting:</p>
-          <button id="video-chat-btn" class="start-btn video-btn">Video</button>
-          <button id="text-chat-btn" class="start-btn text-btn">Text</button>
-        </div>
-      </div>
+      <main class="main-content">
+        <section class="intro-card" id="intro-box">
+          <div class="intro-eyebrow">Anonymous • Instant • Random</div>
+          <h2>Meet New People</h2>
+          <p>Umfigle is a great place to meet new friends. When you use Umfigle, we pick someone else at random and let you talk one-on-one. Chats are completely anonymous.</p>
+          <div class="start-controls">
+            <p class="start-label">Choose your mode</p>
+            <div class="start-actions">
+              <button id="video-chat-btn" class="start-btn video-btn">Video Chat</button>
+              <button id="text-chat-btn" class="start-btn text-btn">Text Chat</button>
+            </div>
+          </div>
+        </section>
 
-      <div class="chat-interface hidden" id="chat-interface">
-        <div class="video-container hidden" id="video-container">
-            <div class="video-wrapper">
-                <video id="stranger-video" autoplay playsinline></video>
-                <div class="video-loading hidden" id="stranger-loading">
-                    <div class="video-spinner"></div>
-                    <span>Looking for stranger...</span>
-                </div>
-                <div class="video-label stranger-label">Stranger</div>
-            </div>
-            <div class="video-wrapper">
-                <video id="local-video" autoplay playsinline muted></video>
-                <div class="video-label you-label">You</div>
-            </div>
-        </div>
-        <div class="chat-messages" id="chat-messages">
-          <!-- Messages will go here -->
-        </div>
-        <div class="chat-controls">
-          <button id="stop-btn" class="control-btn stop-btn">Stop</button>
-          <button id="next-btn" class="control-btn next-btn">Next</button>
-          <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
-          <button id="send-btn" class="control-btn send-btn">Send</button>
-        </div>
-      </div>
-    </main>
+        <section class="chat-interface hidden" id="chat-interface">
+          <div class="video-container hidden" id="video-container">
+              <div class="video-wrapper">
+                  <video id="stranger-video" autoplay playsinline></video>
+                  <div class="video-loading hidden" id="stranger-loading">
+                      <div class="video-spinner"></div>
+                      <span>Looking for stranger...</span>
+                  </div>
+                  <div class="video-label stranger-label">Stranger</div>
+              </div>
+              <div class="video-wrapper">
+                  <video id="local-video" autoplay playsinline muted></video>
+                  <div class="video-label you-label">You</div>
+              </div>
+          </div>
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-controls">
+            <button id="stop-btn" class="control-btn stop-btn">Stop</button>
+            <button id="next-btn" class="control-btn next-btn">Next</button>
+            <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
+            <button id="send-btn" class="control-btn send-btn">Send</button>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 `;
 
@@ -66,6 +72,7 @@ const videoChatBtn = document.getElementById('video-chat-btn');
 const stopBtn = document.getElementById('stop-btn');
 const nextBtn = document.getElementById('next-btn');
 const messageInput = document.getElementById('message-input');
+const themeToggle = document.getElementById('theme-toggle');
 const sendBtn = document.getElementById('send-btn');
 const chatMessages = document.getElementById('chat-messages');
 
@@ -80,11 +87,28 @@ let currentMode = 'text';
 // WebRTC variables
 let localStream = null;
 let peerConnection = null;
+let mediaStateMessage = null;
+
+const turnUrls = import.meta.env.VITE_TURN_URLS
+    ? import.meta.env.VITE_TURN_URLS.split(',').map((url) => url.trim()).filter(Boolean)
+    : [];
+
+const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+];
+
+if (turnUrls.length > 0) {
+    iceServers.push({
+        urls: turnUrls,
+        username: import.meta.env.VITE_TURN_USERNAME,
+        credential: import.meta.env.VITE_TURN_CREDENTIAL
+    });
+}
+
 const configuration = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
+    iceServers,
+    iceTransportPolicy: 'all'
 };
 
 // Event Listeners
@@ -99,19 +123,40 @@ messageInput.addEventListener('keypress', (e) => {
     }
 });
 
+const savedTheme = localStorage.getItem('umfigle-theme');
+const initialDark = savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+document.body.setAttribute('data-theme', initialDark ? 'dark' : 'light');
+updateThemeToggleIcon(initialDark);
+
+themeToggle.addEventListener('click', () => {
+    const isDark = document.body.getAttribute('data-theme') === 'dark';
+    const nextTheme = isDark ? 'light' : 'dark';
+    document.body.setAttribute('data-theme', nextTheme);
+    localStorage.setItem('umfigle-theme', nextTheme);
+    updateThemeToggleIcon(nextTheme === 'dark');
+});
+
+function updateThemeToggleIcon(isDark) {
+    themeToggle.textContent = isDark ? 'Light' : 'Dark';
+    themeToggle.setAttribute('aria-pressed', String(isDark));
+}
+
 function addMessage(text, type) {
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${type}-message`;
-    const contentP = document.createElement('p');
-    contentP.textContent = text;
-    if (type === 'you') {
-        contentP.innerHTML = `<strong>You:</strong> ${text}`;
-    } else if (type === 'stranger') {
-        contentP.innerHTML = `<strong>Stranger:</strong> ${text}`;
-    }
-    msgDiv.appendChild(contentP);
+
+    const label = document.createElement('span');
+    label.className = 'message-label';
+    label.textContent = type === 'you' ? 'You' : 'Stranger';
+
+    const content = document.createElement('p');
+    content.className = 'message-text';
+    content.textContent = text;
+
+    msgDiv.appendChild(label);
+    msgDiv.appendChild(content);
     chatMessages.appendChild(msgDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function addSystemMessage(text) {
@@ -120,11 +165,22 @@ function addSystemMessage(text) {
     msgDiv.textContent = text;
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    return msgDiv;
 }
 
 function showStrangerLoading(show) {
     if (!strangerLoading) return;
     strangerLoading.classList.toggle('hidden', !show);
+}
+
+function setMediaState(text) {
+    if (mediaStateMessage) {
+        mediaStateMessage.remove();
+        mediaStateMessage = null;
+    }
+    if (text) {
+        mediaStateMessage = addSystemMessage(text);
+    }
 }
 
 function prepareForNewMatch({ clearMessages = false } = {}) {
@@ -133,10 +189,12 @@ function prepareForNewMatch({ clearMessages = false } = {}) {
     messageInput.value = '';
     if (clearMessages) {
         chatMessages.innerHTML = '';
+        mediaStateMessage = null;
     }
     if (currentMode === 'video') {
         videoContainer.classList.remove('hidden');
         showStrangerLoading(true);
+        setMediaState('Establishing media connection...');
     }
 }
 
@@ -190,24 +248,29 @@ async function startChat(mode) {
     introBox.classList.add('hidden');
     chatInterface.classList.remove('hidden');
     chatMessages.innerHTML = '';
+    mediaStateMessage = null;
     addSystemMessage('Connecting to server...');
 
     if (mode === 'video') {
         videoContainer.classList.remove('hidden');
         showStrangerLoading(true);
+        setMediaState('Preparing camera and microphone...');
         try {
             localStream = await requestMediaStream();
             localVideo.srcObject = localStream;
+            setMediaState('Searching for a stable video route...');
         } catch (err) {
             console.error('Error accessing media devices.', err);
             addSystemMessage(`${getMediaErrorMessage(err)} Switching to text chat.`);
             currentMode = 'text';
             videoContainer.classList.add('hidden');
             showStrangerLoading(false);
+            setMediaState(null);
         }
     } else {
         videoContainer.classList.add('hidden');
         showStrangerLoading(false);
+        setMediaState(null);
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
             localStream = null;
@@ -223,6 +286,7 @@ function stopVideo() {
         peerConnection = null;
     }
     strangerVideo.srcObject = null;
+    setMediaState(null);
 }
 
 function stopChat() {
@@ -260,8 +324,34 @@ function createPeerConnection() {
         }
     };
 
+    peerConnection.oniceconnectionstatechange = () => {
+        const state = peerConnection?.iceConnectionState;
+        if (state === 'checking') {
+            setMediaState('Connecting video...');
+        } else if (state === 'connected' || state === 'completed') {
+            setMediaState(null);
+            showStrangerLoading(false);
+        } else if (state === 'failed') {
+            setMediaState('Network blocked direct video route. TURN relay is required on one or both sides.');
+            showStrangerLoading(false);
+        } else if (state === 'disconnected') {
+            setMediaState('Video connection interrupted. Reconnecting...');
+        }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+        const state = peerConnection?.connectionState;
+        if (state === 'failed') {
+            setMediaState('Video peer connection failed. Try Next, or check TURN relay settings.');
+            showStrangerLoading(false);
+        }
+    };
+
     peerConnection.ontrack = event => {
         strangerVideo.srcObject = event.streams[0];
+        strangerVideo.play().catch(() => {});
+        showStrangerLoading(false);
+        setMediaState(null);
     };
 
     if (localStream) {
@@ -276,13 +366,19 @@ socket.on('waiting', () => {
     isChatting = false;
     if (currentMode === 'video') {
         showStrangerLoading(true);
+        setMediaState('Looking for someone you can chat with...');
     }
     addSystemMessage('Looking for someone you can chat with...');
 });
 
 socket.on('chat_started', async (data) => {
     isChatting = true;
-    showStrangerLoading(false);
+    if (currentMode === 'video') {
+        showStrangerLoading(true);
+        setMediaState('Connecting video...');
+    } else {
+        showStrangerLoading(false);
+    }
     addSystemMessage('You\'re now chatting with a random stranger. Say hi!');
     messageInput.focus();
 
@@ -328,6 +424,7 @@ socket.on('webrtc_answer', async (answer) => {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
     } catch (error) {
         console.error("Error handling answer.", error);
+        setMediaState('Failed to finalize video handshake. Try Next.');
     }
 });
 
